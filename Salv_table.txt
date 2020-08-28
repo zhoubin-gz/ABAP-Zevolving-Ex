@@ -26,7 +26,8 @@ class lcl_report DEFINITION.
 
     PRIVATE SECTION.
         METHODS:
-            set_pf_status changing co_alv TYPE REF TO cl_salv_table.
+            set_pf_status changing co_alv TYPE REF TO cl_salv_table,
+            set_layout changing co_alv type REF TO cl_salv_table.
 
 ENDCLASS.
 
@@ -61,6 +62,8 @@ CLASS lcl_report implementation.
 
         call METHOD set_pf_status CHANGING co_alv = o_alv.
 
+        call METHOD set_layout CHANGING co_alv = o_alv.
+
         o_alv->display( ).
 
     ENDMETHOD.
@@ -77,5 +80,20 @@ CLASS lcl_report implementation.
         report = 'SALV_DEMO_TABLE_SELECTIONS'
         set_functions = co_alv->c_functions_all
         ).
+    ENDMETHOD.
+
+    METHOD set_layout.
+        data: lo_layout TYPE REF TO cl_salv_layout,
+              lf_variant type slis_vari,
+              ls_key type salv_s_layout_key.
+
+        lo_layout = co_alv->get_layout( ).
+
+        ls_key-report = sy-repid.
+        lo_layout->set_key( ls_key ).
+        lo_layout->set_save_restriction( if_salv_c_layout=>restrict_none ).
+
+        lf_variant = 'DEFAULT'.
+        lo_layout->set_initial_layout( lf_variant ).
     ENDMETHOD.
 ENDCLASS.
