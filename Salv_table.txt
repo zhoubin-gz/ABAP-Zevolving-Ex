@@ -27,7 +27,8 @@ class lcl_report DEFINITION.
     PRIVATE SECTION.
         METHODS:
             set_pf_status changing co_alv TYPE REF TO cl_salv_table,
-            set_layout changing co_alv type REF TO cl_salv_table.
+            set_layout changing co_alv type REF TO cl_salv_table,
+            set_display_setting changing co_alv type ref TO cl_salv_table.
 
 ENDCLASS.
 
@@ -64,6 +65,8 @@ CLASS lcl_report implementation.
 
         call METHOD set_layout CHANGING co_alv = o_alv.
 
+        call METHOD set_display_setting changing co_alv = o_alv.
+
         o_alv->display( ).
 
     ENDMETHOD.
@@ -95,5 +98,15 @@ CLASS lcl_report implementation.
 
         lf_variant = 'DEFAULT'.
         lo_layout->set_initial_layout( lf_variant ).
+    ENDMETHOD.
+
+    METHOD set_display_setting.
+        data: lo_display TYPE REF TO cl_salv_display_settings.
+
+              lo_display = co_alv->get_display_settings( ).
+
+              lo_display->set_striped_pattern( 'X' ).
+
+              lo_display->set_list_header( 'ALV Test for Display Settings' ).
     ENDMETHOD.
 ENDCLASS.
