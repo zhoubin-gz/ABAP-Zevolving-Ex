@@ -1,0 +1,156 @@
+*&---------------------------------------------------------------------*
+*& Report ztest_oo_alv_main
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ztest_oo_alv_main.
+
+class lcl_report DEFINITION.
+
+    PUBLIC SECTION.
+
+        TYPES:BEGIN OF ty_vbak,
+              vbeln TYPE vbak-vbeln,
+              erdat type erdat,
+              auart type auart,
+              kunnr type kunnr,
+              END OF TY_VBAK.
+
+       data: t_vbak type STANDARD TABLE OF ty_vbak.
+
+       data: o_alv type REF TO cl_salv_table.
+
+       METHODS:
+        get_data,
+        generate_output.
+
+    PRIVATE SECTION.
+        METHODS:
+            set_pf_status changing co_alv TYPE REF TO cl_salv_table,
+            set_layout changing co_alv type REF TO cl_salv_table,
+            set_display_setting changing co_alv type ref TO cl_salv_table,
+            set_columns changing co_alv TYPE REF TO cl_salv_table.
+
+ENDCLASS.
+
+START-OF-SELECTION.
+    data: lo_report type ref to lcl_report.
+
+    create OBJECT lo_report.
+
+    lo_report->get_data( ).
+    lo_report->generate_output( ).
+
+CLASS lcl_report implementation.
+
+    METHOD get_data.
+
+        select vbeln erdat auart kunnr into table t_vbak FROM vbak UP TO 20 rows.
+
+    ENDMETHOD.
+
+    METHOD generate_output.
+
+        data: lx_msg type REF TO cx_salv_msg.
+        try.
+            cl_salv_table=>factory(
+                IMPORTING
+                    r_salv_table = o_alv
+                CHANGING
+                    t_table = t_vbak
+            ).
+            CATCH cx_salv_msg into lx_msg.
+        ENDTRY.
+
+        call METHOD set_pf_status CHANGING co_alv = o_alv.
+
+        call METHOD set_layout CHANGING co_alv = o_alv.
+
+        call METHOD set_display_setting changing co_alv = o_alv.
+
+        call METHOD set_columns CHANGING co_alv = o_alv.
+
+        o_alv->display( ).
+
+    ENDMETHOD.
+
+    METHOD set_pf_status.
+
+        data: lo_functions TYPE REF TO cl_salv_functions_list.
+
+        lo_functions = co_alv->get_functions( ).
+        lo_functions->set_default( abap_true ).
+
+        co_alv->set_screen_status(
+        pfstatus = 'SALV_STANDARD'
+        report = 'SALV_DEMO_TABLE_SELECTIONS'
+        set_functions = co_alv->c_functions_all
+        ).
+    ENDMETHOD.
+
+    METHOD set_layout.
+        data: lo_layout TYPE REF TO cl_salv_layout,
+              lf_variant type slis_vari,
+              ls_key type salv_s_layout_key.
+
+        lo_layout = co_alv->get_layout( ).
+
+        ls_key-report = sy-repid.
+        lo_layout->set_key( ls_key ).
+        lo_layout->set_save_restriction( if_salv_c_layout=>restrict_none ).
+
+        lf_variant = 'DEFAULT'.
+        lo_layout->set_initial_layout( lf_variant ).
+    ENDMETHOD.
+
+    METHOD set_display_setting.
+
+        data: lo_display TYPE REF TO cl_salv_display_settings.
+
+              lo_display = co_alv->get_display_settings( ).
+
+              lo_display->set_striped_pattern( 'X' ).
+
+              lo_display->set_list_header( 'ALV Test for Display Settings' ).
+
+    ENDMETHOD.
+
+    METHOD set_columns.
+
+        data: lo_cols TYPE REF TO cl_salv_columns.
+
+        lo_cols = o_alv->get_columns( ).
+
+        lo_cols->set_optimize( 'X' ).
+
+        DATA:lo_column TYPE REF TO cl_salv_column.
+
+        try.
+            lo_column = lo_cols->get_column( 'KUNNR').
+            lo_column->set_long_text( '售达方' ).
+            lo_column->set_medium_text( '售达方' ).
+            lo_column->set_short_text( '售达方' ).
+            lo_column->set_output_length( 10 ).
+
+            lo_column = lo_cols->get_column( 'AUART').
+            lo_column->set_long_text( '销售凭证类型' ).
+            lo_column->set_medium_text( '销售凭证类型' ).
+            lo_column->set_short_text( '销售凭证类型' ).
+            lo_column->set_output_length( 10 ).
+
+            lo_column = lo_cols->get_column( 'VBELN').
+            lo_column->set_long_text( '销售凭证' ).
+            lo_column->set_medium_text( '销售凭证' ).
+            lo_column->set_short_text( '销售凭证' ).
+            lo_column->set_output_length( 10 ).
+
+            lo_column = lo_cols->get_column( 'ERDAT').
+            lo_column->set_long_text( '凭证创建日期' ).
+            lo_column->set_medium_text( '凭证创建日期' ).
+            lo_column->set_short_text( '创建日期' ).
+            lo_column->set_output_length( 10 ).
+          CATCH cx_salv_not_found.
+        ENDTRY.
+
+    ENDMETHOD.
+ENDCLASS.
