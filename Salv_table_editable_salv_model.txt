@@ -1,0 +1,158 @@
+*&---------------------------------------------------------------------*
+*& Report ztest_np_edit_salv
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ztest_np_edit_salv.
+
+class lcl_salv_model DEFINITION INHERITING FROM cl_salv_model_list.
+
+    PUBLIC SECTION.
+        data: o_control TYPE REF TO cl_salv_controller_model,
+              o_adapter TYPE REF TO cl_salv_adapter.
+        METHODS:
+            grabe_model
+                IMPORTING
+                    io_model TYPE REF TO cl_salv_model,
+            grabe_controller,
+            grabe_adapter.
+
+    PRIVATE SECTION.
+        DATA: lo_model TYPE REF TO cl_salv_model.
+
+ENDCLASS.
+
+class lcl_event_handler DEFINITION.
+
+    PUBLIC SECTION.
+        METHODS:
+            on_user_command for EVENT added_function of cl_salv_events
+                importing e_salv_function.
+
+ENDCLASS.
+
+CLASS lcl_report DEFINITION.
+
+    PUBLIC SECTION.
+        TYPES: ty_t_sflights TYPE STANDARD TABLE OF sflights.
+        data: t_data type ty_t_sflights.
+        data: o_salv TYPE REF TO cl_salv_table.
+        data: o_salv_model TYPE REF TO lcl_salv_model.
+
+        METHODS:
+            get_data,
+            generate_output.
+
+ENDCLASS.
+
+data: lo_report TYPE REF TO lcl_report.
+
+START-OF-SELECTION.
+
+    create OBJECT lo_report.
+    lo_report->get_data( ).
+    lo_report->generate_output( ).
+
+CLASS lcl_report IMPLEMENTATION.
+
+    METHOD get_data.
+
+        select * from sflights into table me->t_data UP TO 30 rows.
+
+    ENDMETHOD.
+
+    METHOD generate_output.
+
+        try.
+            cl_salv_table=>factory(
+                EXPORTING
+                    list_display = abap_false
+                IMPORTING
+                    r_salv_table = o_salv
+                CHANGING
+                    t_table = t_data
+
+             ).
+             CATCH cx_salv_msg.
+        ENDTRY.
+
+        o_salv->set_screen_status(
+            pfstatus = 'SALV_STANDARD'
+            report = 'SALV_DEMO_TABLE_EVENTS'
+            set_functions = o_salv->c_functions_all
+        ).
+
+        data: lo_events TYPE REF TO cl_salv_events_table,
+              lo_event_h TYPE REF TO lcl_event_handler.
+
+        lo_events = o_salv->get_event( ).
+
+        create OBJECT lo_event_h.
+
+        set handler lo_event_h->on_user_command for lo_events.
+
+        data: lo_alv_mod TYPE REF TO cl_salv_model.
+
+        lo_alv_mod ?= o_salv.
+
+        create OBJECT o_salv_model.
+
+        call METHOD o_salv_model->grabe_model EXPORTING io_model = lo_alv_mod.
+
+        o_salv->display( ).
+
+    ENDMETHOD.
+
+ENDCLASS.
+
+class lcl_salv_model IMPLEMENTATION.
+
+    METHOD grabe_model.
+        lo_model = io_model.
+    ENDMETHOD.
+
+    METHOD grabe_controller.
+        o_control = lo_model->r_controller.
+    ENDMETHOD.
+
+    METHOD grabe_adapter.
+        o_adapter ?= lo_model->r_controller->r_adapter.
+    ENDMETHOD.
+
+ENDCLASS.
+
+class lcl_event_handler IMPLEMENTATION.
+
+    METHOD on_user_command.
+
+        data: lo_grid TYPE REF TO cl_gui_alv_grid,
+              lo_full_adap type ref TO cl_salv_fullscreen_adapter.
+        data: ls_layout type lvc_s_layo.
+
+        case e_salv_function.
+
+            when 'MYFUNCTION'.
+                call METHOD lo_report->o_salv_model->grabe_controller.
+
+                call METHOD lo_report->o_salv_model->grabe_adapter.
+
+                lo_full_adap ?= lo_report->o_salv_model->o_adapter.
+
+                lo_grid = lo_full_adap->get_grid( ).
+
+                if lo_grid is BOUND.
+
+                    ls_layout-edit = 'X'.
+
+                    call METHOD lo_grid->set_frontend_layout
+                        EXPORTING is_layout = ls_layout.
+
+                    call METHOD lo_grid->refresh_table_display.
+
+                ENDIF.
+
+        ENDCASE.
+
+    ENDMETHOD.
+
+ENDCLASS.
