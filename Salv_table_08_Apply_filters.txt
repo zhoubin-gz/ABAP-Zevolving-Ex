@@ -1,0 +1,134 @@
+*&---------------------------------------------------------------------*
+*& Report ztest_oo_alv_aggr
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ztest_oo_alv_aggr.
+
+class lcl_report DEFINITION.
+
+    PUBLIC SECTION.
+        TYPES: BEGIN OF ty_vbak,
+               vbeln type vbak-vbeln,
+               erdat type erdat,
+               auart type auart,
+               kunnr type kunnr,
+               netwr type netwr,
+               END OF TY_VBAK.
+
+    TYPES: ty_t_vbak type STANDARD TABLE OF ty_vbak.
+
+    data:t_vbak type STANDARD TABLE OF ty_vbak.
+
+    data: o_alv TYPE REF TO cl_salv_table.
+
+    METHODS:
+        get_data,
+        generate_output.
+
+    PRIVATE SECTION.
+        METHODS:
+            set_pf_status
+                changing co_alv TYPE REF TO cl_salv_table,
+            set_aggregations
+                changing co_alv TYPE REF TO cl_salv_table,
+            set_filters
+                changing co_alv TYPE REF TO cl_salv_table.
+
+ENDCLASS.
+
+START-OF-SELECTION.
+    data: lo_report type REF TO lcl_report.
+
+    create OBJECT lo_report.
+
+    lo_report->get_data( ).
+
+    lo_report->generate_output( ).
+
+class lcl_report IMPLEMENTATION.
+
+    METHOD get_data.
+
+        select vbeln erdat auart kunnr netwr
+               into CORRESPONDING FIELDS OF table t_vbak
+               from vbak.
+
+
+    ENDMETHOD.
+
+    METHOD generate_output.
+
+        data: lx_msg TYPE REF TO cx_salv_msg.
+        try.
+            cl_salv_table=>factory(
+                IMPORTING
+                    r_salv_table = o_alv
+                CHANGING
+                    t_table = t_vbak
+            ).
+            CATCH cx_salv_msg into lx_msg.
+        ENDTRY.
+
+        CAll METHOD set_pf_status CHANGING co_alv = o_alv.
+
+        CALL METHOD set_aggregations CHANGING co_alv = o_alv.
+
+        call METHOD set_filters CHANGING co_alv = o_alv.
+
+        o_alv->display( ).
+
+    ENDMETHOD.
+
+    METHOD set_pf_status.
+
+        data: lo_functions TYPE REF TO cl_salv_functions_list.
+
+              lo_functions = co_alv->get_functions( ).
+              lo_functions->set_default( abap_true ).
+
+    ENDMETHOD.
+
+    METHOD set_aggregations.
+
+        data: lo_aggrs TYPE REF TO cl_salv_aggregations.
+
+              lo_aggrs = co_alv->get_aggregations( ).
+
+              try.
+                call METHOD lo_aggrs->add_aggregation
+                        EXPORTING
+                            columnname = 'NETWR'
+                            aggregation = if_salv_c_aggregation=>total.
+                CATCH cx_salv_data_error.
+                CATCH cx_salv_not_found.
+                CATCH cx_salv_existing.
+              ENDTRY.
+
+              lo_aggrs->set_numerical_aggregation( ).
+
+    ENDMETHOD.
+
+    METHOD set_filters.
+
+        data: lo_filters type REF TO cl_salv_filters.
+
+              lo_filters = co_alv->get_filters( ).
+
+              try.
+                call METHOD lo_filters->add_filter
+                    EXPORTING
+                        columnname = 'ERDAT'
+                        sign = 'I'
+                        option = 'EQ'
+                        low = '20171008'
+*                        high =
+                .
+                CATCH cx_salv_data_error.
+                CATCH cx_salv_not_found.
+                CATCH cx_salv_existing.
+              ENDTRY.
+
+    ENDMETHOD.
+
+ENDCLASS.
