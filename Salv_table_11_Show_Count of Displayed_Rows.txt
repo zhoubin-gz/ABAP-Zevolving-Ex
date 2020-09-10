@@ -1,0 +1,289 @@
+PROGRAM zsalv_num_display_rows.
+
+CLASS lcl_report DEFINITION.
+
+  PUBLIC SECTION.
+
+*   Final output table
+    TYPES: BEGIN OF ty_vbak,
+           vbeln     TYPE vbak-vbeln,
+           erdat     TYPE erdat,
+           auart     TYPE auart,
+           kunnr     TYPE kunnr,
+           netwr     TYPE netwr,
+           END   OF ty_vbak.
+    TYPES: ty_t_vbak TYPE STANDARD TABLE OF ty_vbak.
+    DATA: t_vbak TYPE STANDARD TABLE OF ty_vbak.
+
+*   ALV reference
+    DATA: o_alv TYPE REF TO cl_salv_table.
+
+    METHODS:
+      get_data,                   " Data selection
+      generate_output.            " Generate Output
+
+  PRIVATE SECTION.
+    METHODS:
+      set_pf_status,              " PF Status
+      set_filters,                " Apply Filters
+      set_after_events            " After Event
+        FOR EVENT after_salv_function OF cl_salv_events_table
+          IMPORTING
+            e_salv_function,
+      determine_displayed_rows,   " Get number of rows
+      set_rows,                   " Set Number of rows
+      generate_report.            " Generate Report
+
+    DATA: v_rows TYPE i.          " Rows
+    DATA: v_prog TYPE string.     " Dynamic Prog
+
+ENDCLASS.                    "lcl_report DEFINITION
+
+
+START-OF-SELECTION.
+  DATA: lo_report TYPE REF TO lcl_report.
+
+  CREATE OBJECT lo_report.
+  lo_report->get_data( ).
+  lo_report->generate_output( ).
+
+*
+CLASS lcl_report IMPLEMENTATION.
+  METHOD get_data.
+*   data selection
+    SELECT vbeln erdat auart kunnr netwr
+           INTO  CORRESPONDING FIELDS OF TABLE t_vbak
+           FROM  vbak
+           UP TO 100 ROWS
+           WHERE erdat GE '20090101'.
+  ENDMETHOD.                    "get_data
+
+  METHOD generate_output.
+* New ALV instance
+*   We are calling the static Factory method which will give back
+*   the ALV object reference.
+*
+* exception class
+    DATA: lx_msg TYPE REF TO cx_salv_msg.
+    TRY.
+        cl_salv_table=>factory(
+          IMPORTING
+            r_salv_table = o_alv
+          CHANGING
+            t_table      = t_vbak ).
+      CATCH cx_salv_msg INTO lx_msg.
+    ENDTRY.
+
+*...Set default PF status
+    me->set_pf_status( ).
+
+*...Set Filters
+    me->set_filters( ).
+
+*...Events
+    DATA: lo_events TYPE REF TO cl_salv_events_table.
+    lo_events = o_alv->get_event( ).
+    SET HANDLER me->set_after_events FOR lo_events.
+
+*.. Determine the number of displayed rows
+    me->determine_displayed_rows( ).
+
+*...get display object
+    me->set_rows( ).
+
+* Displaying the ALV
+*   Here we will call the DISPLAY method to get the output on the screen
+    o_alv->display( ).
+
+  ENDMETHOD.                    "generate_output
+
+  METHOD set_pf_status.
+    DATA: lo_functions TYPE REF TO cl_salv_functions_list.
+    lo_functions = me->o_alv->get_functions( ).
+    lo_functions->set_default( abap_true ).
+  ENDMETHOD.                    "set_pf_status
+
+  METHOD set_filters.
+
+    DATA: lo_filters TYPE REF TO cl_salv_filters.
+    lo_filters = o_alv->get_filters( ).
+*
+*   Set the filter for the column ERDAT
+*     the filter criteria works exactly same as any
+*     RANGE or SELECT-OPTIONS works.
+    TRY.
+        CALL METHOD lo_filters->add_filter
+          EXPORTING
+            columnname = 'ERDAT'
+            sign       = 'I'
+            option     = 'EQ'
+            low        = '20091214'
+*           high       =
+            .
+      CATCH cx_salv_not_found .                         "#EC NO_HANDLER
+      CATCH cx_salv_data_error .                        "#EC NO_HANDLER
+      CATCH cx_salv_existing .                          "#EC NO_HANDLER
+    ENDTRY.
+*
+  ENDMETHOD.                    "set_filters
+
+  METHOD determine_displayed_rows.
+
+*   1. Get All the Columns
+*   2. For Each column, get the filter
+*   2.1   Get the filter value for each column
+*   2.2   Call the subroutine to delete the records
+*         which are not in range
+*   2.3   Determine the number of rows
+
+    DATA: lo_filters    TYPE REF TO cl_salv_filters.
+    DATA: lo_filter     TYPE REF TO cl_salv_filter.
+    DATA: lv_filter_val TYPE salv_t_selopt_ref.
+    DATA: lo_selopt     TYPE REF TO cl_salv_selopt.
+    DATA: lr_range      TYPE RANGE OF char80.
+    DATA: lwa_range     LIKE LINE OF lr_range.
+    DATA: lt_data       TYPE ty_t_vbak.
+    DATA: lo_cols       TYPE REF TO cl_salv_columns.
+    DATA: lo_cols_tab   TYPE salv_t_column_ref.
+    DATA: lo_col        LIKE LINE OF lo_cols_tab.
+    data: lf_form type string.
+
+    lt_data = me->t_vbak.
+
+*   Columns and Filters
+    lo_cols = o_alv->get_columns( ).
+    lo_cols_tab = lo_cols->get( ).
+    lo_filters = o_alv->get_filters( ).
+
+*   dynamic subroutine pool
+    me->generate_report( ).
+
+    LOOP AT lo_cols_tab INTO lo_col.
+      CLEAR: lr_range.
+      TRY.
+
+*         Get Filter for the column. No filter will raise exception
+          lo_filter = lo_filters->get_filter( lo_col-columnname ).
+          lv_filter_val = lo_filter->get( ).
+          LOOP AT lv_filter_val INTO lo_selopt.
+            lwa_range-sign   = lo_selopt->get_sign( ).
+            lwa_range-option = lo_selopt->get_option( ).
+            lwa_range-low    = lo_selopt->get_low( ).
+            lwa_range-high   = lo_selopt->get_high( ).
+            APPEND lwa_range TO lr_range.
+            CLEAR  lwa_range.
+          ENDLOOP.
+
+
+*         Dynamic Subrotine call to overcome the Restriction
+*         of dynamic WHERE clause
+          CONCATENATE 'DEL_' lo_col-columnname into lf_form.
+          PERFORM (lf_form) IN PROGRAM (v_prog)  IF FOUND
+             using lr_range
+             CHANGING lt_data.
+
+*         No data, exist
+          IF lt_data IS INITIAL.
+            EXIT.
+          ENDIF.
+
+        CATCH cx_salv_not_found.
+      ENDTRY.
+
+    ENDLOOP.
+
+*   recount the rows
+    v_rows = LINES( lt_data ).
+
+
+  ENDMETHOD.                    "determine_displayed_rows
+
+  METHOD generate_report.
+
+    DATA:
+      tab  TYPE STANDARD TABLE OF string,
+      mess TYPE string,
+      sid  TYPE string,
+      lf_string TYPE string,
+      lf_form  TYPE string.
+
+    CHECK v_prog IS INITIAL.
+
+    APPEND 'PROGRAM subpool.'                        TO tab.
+
+    DATA: lo_cols TYPE REF TO cl_salv_columns.
+    DATA: lo_cols_tab TYPE salv_t_column_ref.
+    DATA: lo_col LIKE LINE OF lo_cols_tab.
+
+    lo_cols = o_alv->get_columns( ).
+    lo_cols_tab = lo_cols->get( ).
+
+    APPEND 'TYPES: ty_range type range of char80.' TO tab.
+
+    APPEND 'TYPES: BEGIN OF ty_vbak,'  to tab.
+    APPEND 'vbeln     TYPE vbak-vbeln,' to tab.
+    APPEND 'erdat     TYPE erdat,'  to tab.
+    APPEND 'auart     TYPE auart,'  to tab.
+    APPEND 'kunnr     TYPE kunnr,'  to tab.
+    APPEND 'netwr     TYPE netwr,'  to tab.
+    APPEND 'END   OF ty_vbak.'  to tab.
+    APPEND 'TYPES: ty_t_vbak TYPE STANDARD TABLE OF ty_vbak.'  to tab.
+
+
+    LOOP AT lo_cols_tab INTO lo_col.
+      CONCATENATE 'DEL_' lo_col-columnname INTO lf_form.
+      CONCATENATE 'FORM ' lf_form
+        'using lr_range type ty_range changing ct_data type ty_t_vbak.'
+        INTO lf_string SEPARATED BY space.
+      APPEND lf_string TO tab.
+      CLEAR lf_string.
+
+      CONCATENATE '  DELETE ct_Data where not' lo_col-columnname
+        'in lr_range.' INTO lf_string SEPARATED BY space.
+      APPEND lf_string TO tab.
+      CLEAR lf_string.
+
+      APPEND 'ENDFORM. ' TO tab.
+
+    ENDLOOP.
+
+    v_prog = ''.
+
+    GENERATE SUBROUTINE POOL tab NAME v_prog
+             MESSAGE mess
+             SHORTDUMP-ID sid.
+
+    IF sy-subrc = 0.
+    ELSEIF sy-subrc = 4.
+      MESSAGE mess TYPE 'I'.
+    ELSEIF sy-subrc = 8.
+      MESSAGE sid TYPE 'I'.
+    ENDIF.
+
+  ENDMETHOD.                    "generate_report
+
+  METHOD set_after_events.
+
+    check e_salv_function eq '&ILT'     " Apply Filter
+       or e_salv_function eq '&ILD'.    " Delete Filter
+
+    me->determine_displayed_rows( ).
+    me->set_rows( ).
+  ENDMETHOD.                    "set_after_evnets
+
+  method set_rows.
+*   get display object
+    DATA: lo_display TYPE REF TO cl_salv_display_settings.
+    DATA: lv_string TYPE lvc_title.
+
+    lo_display = o_alv->get_display_settings( ).
+    lv_string = v_rows.
+    CONDENSE lv_string.
+    CONCATENATE 'Number of Displayed Rows: ' lv_string into
+      lv_string SEPARATED BY space.
+    lo_display->set_list_header( lv_string ).
+
+  ENDMETHOD.
+
+
+ENDCLASS.                    "lcl_report IMPLEMENTATION
